@@ -1,5 +1,6 @@
-"""Decoder CNN: citra (terserang) -> logit bit pesan."""
+"""Decoder CNN: citra (yang mungkin terserang) -> logit bit pesan."""
 import torch.nn as nn
+
 from .encoder import ConvBNRelu
 
 
@@ -11,9 +12,9 @@ class Decoder(nn.Module):
             blocks.append(ConvBNRelu(conv_channels, conv_channels))
         blocks.append(ConvBNRelu(conv_channels, msg_len))
         self.conv_layers = nn.Sequential(*blocks)
-        self.pool = nn.AdaptiveAvgPool2d(1)  # tahan terhadap perubahan ukuran/crop
+        self.pool = nn.AdaptiveAvgPool2d(1)  # tahan terhadap crop / perubahan ukuran
         self.linear = nn.Linear(msg_len, msg_len)
 
     def forward(self, image):
         x = self.pool(self.conv_layers(image)).flatten(1)
-        return self.linear(x)  # logit; sigmoid(logit) = probabilitas bit 1
+        return self.linear(x)  # logit; sigmoid(logit) = peluang bit bernilai 1

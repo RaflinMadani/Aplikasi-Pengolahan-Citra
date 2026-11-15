@@ -1,4 +1,4 @@
-"""Metrik: PSNR, SSIM, BER. Citra masukan di [-1,1] dikonversi ke [0,1]."""
+"""Metrik evaluasi: PSNR, SSIM, BER. Citra masukan di [-1,1] dikonversi ke [0,1]."""
 import torch
 import torch.nn.functional as F
 
@@ -8,6 +8,7 @@ def to01(x):
 
 
 def psnr(a, b):
+    """Rata-rata PSNR (dB) satu batch."""
     mse = ((to01(a) - to01(b)) ** 2).flatten(1).mean(1).clamp_min(1e-10)
     return (10 * torch.log10(1.0 / mse)).mean().item()
 
@@ -20,6 +21,7 @@ def _window(size=11, sigma=1.5, c=3, device="cpu"):
 
 
 def ssim(a, b, size=11):
+    """SSIM (jendela Gaussian 11x11, sigma 1.5), rata-rata satu batch."""
     a, b = to01(a), to01(b)
     c = a.size(1)
     w = _window(size, 1.5, c, a.device)
@@ -34,6 +36,5 @@ def ssim(a, b, size=11):
 
 
 def ber(logits, message):
-    """Bit Error Rate (0..1). logits: keluaran decoder, message: bit asli."""
-    pred = (logits > 0).float()
-    return (pred != message).float().mean().item()
+    """Bit Error Rate (0..1). logits = keluaran decoder, message = bit asli {0,1}."""
+    return ((logits > 0).float() != message).float().mean().item()

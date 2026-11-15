@@ -4,6 +4,8 @@ import torch.nn as nn
 
 
 class ConvBNRelu(nn.Module):
+    """Blok dasar: Conv2d -> BatchNorm -> ReLU."""
+
     def __init__(self, c_in, c_out, k=3, s=1, p=1):
         super().__init__()
         self.layers = nn.Sequential(
@@ -31,9 +33,9 @@ class Encoder(nn.Module):
     def forward(self, image, message):
         """image: (B,3,H,W) di [-1,1]; message: (B,L) berisi {0,1}."""
         b, _, h, w = image.shape
-        # Ubah bit ke {-1,+1} lalu replikasi ke seluruh lokasi spasial
+        # bit {0,1} -> {-1,+1}, lalu direplikasi ke seluruh lokasi spasial
         msg = (message * 2 - 1).view(b, self.msg_len, 1, 1).expand(-1, -1, h, w)
         feat = self.conv_layers(image)
         x = torch.cat([msg, feat, image], dim=1)
         residual = self.final(self.after_concat(x))
-        return image + residual  # residual learning -> perubahan kecil, tak kasat mata
+        return image + residual  # residual learning: perubahan kecil, tak kasat mata

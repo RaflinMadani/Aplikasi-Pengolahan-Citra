@@ -1,20 +1,23 @@
-"""Noise Layer: simulasi serangan yang dapat dilewati gradien.
+"""Noise Layer: simulasi serangan yang gradiennya tetap bisa mengalir.
 
-- JPEG   : kompresi JPEG asli (OpenCV) + straight-through estimator.
-- Crop   : area acak dipertahankan, sisanya dihitamkan.
-- Noise  : Gaussian noise (sigma pada skala piksel [0,1]).
-- Blur   : Gaussian blur.
-- Dropout: sebagian piksel dikembalikan ke piksel cover.
+- jpeg           : kompresi JPEG asli (OpenCV) + straight-through estimator
+- crop           : sebagian area dipertahankan, sisanya dihitamkan
+- gaussian_noise : derau Gaussian (sigma pada skala piksel [0,1])
+- blur           : Gaussian blur
+- resize         : perkecil lalu perbesar kembali
+- dropout        : sebagian piksel dikembalikan ke piksel cover
 Semua input/output berada pada rentang [-1, 1].
 """
 import random
+
 import cv2
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 
-ATTACKS = ["identity", "jpeg", "crop", "gaussian_noise", "blur", "dropout"]
+ATTACKS = ["identity", "jpeg", "crop", "gaussian_noise", "blur", "resize", "dropout"]
 
 
 def jpeg_compress(x, quality):
@@ -27,7 +30,7 @@ def jpeg_compress(x, quality):
         dec = cv2.imdecode(enc, cv2.IMREAD_COLOR)
         out.append(cv2.cvtColor(dec, cv2.COLOR_BGR2RGB))
     out = torch.from_numpy(np.stack(out)).to(x.device).permute(0, 3, 1, 2).float() / 127.5 - 1
-    return x + (out - x).detach()  # forward = JPEG, backward = identitas
+    return x + (out - x).detach()  # forward = JPEG asli, backward = identitas
 
 
 def crop_attack(x, removed_ratio):
@@ -49,13 +52,20 @@ def blur(x, sigma):
     return TF.gaussian_blur(x, kernel_size=5, sigma=float(sigma))
 
 
+def resize_attack(x, scale):
+    h, w = x.shape[-2:]
+    small = F.interpolate(x, size=(max(1, int(h * scale)), max(1, int(w * scale))),
+                          mode="bilinear", align_corners=False)
+    return F.interpolate(small, size=(h, w), mode="bilinear", align_corners=False)
+
+
 def dropout(x, cover, p):
     keep = (torch.rand(x.size(0), 1, x.size(2), x.size(3), device=x.device) > p).float()
     return x * keep + cover * (1 - keep)
 
 
 class NoiseLayer(nn.Module):
-    """mode='random' -> pilih satu serangan acak per batch (untuk training)."""
+    """mode='random' -> satu serangan acak per batch (dipakai saat training)."""
 
     def __init__(self, mode="random"):
         super().__init__()
@@ -69,6 +79,7 @@ class NoiseLayer(nn.Module):
             "crop": {"removed_ratio": random.uniform(0.1, 0.5)},
             "gaussian_noise": {"sigma": random.uniform(0.01, 0.05)},
             "blur": {"sigma": random.uniform(0.5, 2.0)},
+            "resize": {"scale": random.uniform(0.5, 0.9)},
             "dropout": {"p": random.uniform(0.1, 0.3)},
         }[name]
 
@@ -84,6 +95,8 @@ class NoiseLayer(nn.Module):
             return gaussian_noise(x, p["sigma"])
         if name == "blur":
             return blur(x, p["sigma"])
+        if name == "resize":
+            return resize_attack(x, p["scale"])
         if name == "dropout":
             return dropout(x, cover, p["p"])
         raise ValueError(f"Serangan tidak dikenal: {name}")
