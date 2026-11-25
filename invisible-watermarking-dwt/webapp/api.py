@@ -15,7 +15,7 @@ from .storage import SID_RE
 
 bp = Blueprint("api", __name__, url_prefix="/api")
 
-WM_SIZES = (16, 24, 32, 48, 64)
+WM_SIZES = (16, 24, 32, 48, 64, 128, 256, 512)
 PRESET_ATTACKS = (
     [{"type": "jpeg", "quality": q} for q in (90, 70, 50, 30, 10)]
     + [{"type": "crop", "percent": p, "position": "br"} for p in (10, 25, 50)]
@@ -244,7 +244,7 @@ def embed_route():
     wm_size, text = 0, None
     try:
         if wm_type == "image":
-            wm_size = _int(form.get("wm_size"), "Ukuran watermark", 16, 64, 32)
+            wm_size = _int(form.get("wm_size"), "Ukuran watermark", 16, 512, 32)
             if wm_size not in WM_SIZES:
                 raise ApiError(f"Ukuran watermark harus salah satu dari {WM_SIZES}.")
             up, _ = read_upload("wm_image", required=False)
@@ -311,7 +311,7 @@ def extract_route():
         size, orig_bits = 0, None
         try:
             if t == "image":
-                size = _int(form.get("wm_size"), "Ukuran watermark", 16, 64, 32)
+                size = _int(form.get("wm_size"), "Ukuran watermark", 16, 512, 32)
                 n = size * size
                 up, _ = read_upload("exp_image", required=False)
                 orig_bits = codec.image_to_bits(up, size) if up is not None else None
@@ -324,7 +324,7 @@ def extract_route():
                     orig_bits = codec.binary_string_to_bits(form["exp_binary"])
                     n = len(orig_bits)
                 else:
-                    n = _int(form.get("wm_bits"), "Jumlah bit", codec.MIN_BINARY_BITS, codec.MAX_BINARY_BITS, 64)
+                    n = _int(form.get("wm_bits"), "Jumlah bit", codec.MIN_BINARY_BITS, codec.MAX_BINARY_BITS, 512)
             else:
                 raise ApiError("Jenis watermark tidak dikenal.")
         except ValueError as e:

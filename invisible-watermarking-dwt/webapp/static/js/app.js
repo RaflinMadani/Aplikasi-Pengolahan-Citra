@@ -250,6 +250,7 @@ function embedResult(item) {
     card(h('h2', {}, 'Ekstraksi langsung (tanpa serangan)'), h('div', { style: 'margin-top:14px' }, wmCompare(item))),
     h('div', { class: 'row' },
       h('a', { class: 'btn', href: u.watermarked + '&download=1' }, 'Unduh citra ber-watermark'),
+      u.diff && h('a', { class: 'btn ghost', href: u.diff + '&download=1' }, 'Unduh gambar selisih'),
       h('a', { class: 'btn ghost', href: `/api/history/${item.id}/config?sid=${SID}` }, 'Unduh kunci dan parameter'),
       h('button', { class: 'btn ghost', type: 'button', onclick: () => { state.pending = { attack: item.id }; go('serangan'); } }, 'Uji ketahanan')));
 }
@@ -330,39 +331,72 @@ function viewEmbed(root, pend) {
 /* ================= Ekstraksi ================= */
 async function viewExtract(root, pend) {
   const pre = takeNote(pend, 'extractRef');
-  root.append(pageHead('Ekstraksi watermark', 'Buktikan apakah watermark masih terbaca. Pilih hasil dari riwayat, atau unggah citra dan isi parameter yang sama dengan saat penyisipan.'));
+  root.append(pageHead('Ekstraksi watermark', 'Buktikan apakah watermark masih terbaca dari riwayat, atau unggah citra luar langsung dengan memasukkan parameter penyisipan.'));
   let items = [];
   try { items = (await api('/history')).items.filter(i => i.kind === 'embed' || i.kind === 'attack'); } catch (e) { toast(e.message, true); }
 
-  const mode = segmented([{ value: 'history', label: 'Dari riwayat' }, { value: 'upload', label: 'Unggah citra' }],
-    pre || items.length ? 'history' : 'upload', () => sync());
+  const mode = segmented(
+    [{ value: 'history', label: 'Dari riwayat' }, { value: 'direct', label: 'Upload Image' }],
+    pre || items.length ? 'history' : 'direct',
+    () => sync()
+  );
+
+  // --- Mode 1: Dari riwayat (+ opsional citra luar) ---
   const sel = h('select', {}, items.map(i => h('option', { value: i.id }, `${KIND[i.kind]} · ${i.title}`)));
   if (pre) sel.value = pre;
   const summary = h('div', { class: 'row' });
   const showSummary = () => { const it = items.find(i => i.id === sel.value); summary.replaceChildren(...(it ? cfgChips(it.config) : [])); };
   sel.addEventListener('change', showSummary); showSummary();
-  const other = dropzone({ label: 'Citra uji lain (opsional)', hint: 'Mis. hasil unduhan atau tangkapan layar yang sudah diserang', compact: true });
 
-  const test = dropzone({ label: 'Unggah citra uji', hint: 'Citra ber-watermark, bersih maupun yang sudah diserang' });
+  const other = dropzone({
+    label: 'Citra uji dari luar (opsional)',
+    hint: 'Kosong = ekstrak citra riwayat. Isi = uji citra luar dengan parameter & referensi item ini.',
+    compact: true
+  });
+
+  const histPanel = h('div', {}, items.length
+    ? h('div', { class: 'stack' }, field('Referensi riwayat', sel), summary, other.el)
+    : emptyState('Riwayat masih kosong', 'Sisipkan watermark dulu, atau pindah ke tab “Citra luar (tanpa referensi)”.', linkBtn('Ke penyisipan', 'sisip')));
+
+  // --- Mode 2: Citra luar langsung tanpa referensi watermark ---
+  const test = dropzone({
+    label: 'Unggah citra uji',
+    hint: 'Citra ber-watermark yang ingin diekstrak'
+  });
   const params = paramsPanel();
-  const wm = wmInput('extract');
+  const o = state.options;
+  const wmType = segmented(Object.entries(WM_TYPE).map(([value, label]) => ({ value, label })), 'image', v => syncType(v));
+  const wmSize = h('select', {}, o.wm_sizes.map(s => h('option', { value: s, selected: s === 32 }, `${s} × ${s} piksel (${s * s} bit)`)));
+  const wmBits = h('input', { type: 'number', min: o.binary_bits[0], max: o.binary_bits[1], value: 64 });
   const rw = h('input', { type: 'number', min: 8, placeholder: 'otomatis' });
   const rh = h('input', { type: 'number', min: 8, placeholder: 'otomatis' });
 
-  const histPanel = h('div', {}, items.length
-    ? h('div', { class: 'stack' }, field('Sumber citra dan parameter', sel), summary, other.el)
-    : emptyState('Riwayat masih kosong', 'Sisipkan watermark dulu, atau pindah ke “Unggah citra”.', linkBtn('Ke penyisipan', 'sisip')));
-  const upPanel = h('div', { class: 'stack' }, test.el,
-    h('div', {}, h('h3', { style: 'margin-bottom:10px' }, 'Parameter (sama dengan saat penyisipan)'), params.el),
-    h('div', {}, h('h3', { style: 'margin-bottom:10px' }, 'Watermark'), wm.el),
-    h('div', {}, h('h3', { style: 'margin-bottom:10px' }, 'Ukuran citra saat penyisipan (opsional)'),
-      h('div', { class: 'grid2' }, field('Lebar (px)', rw), field('Tinggi (px)', rh)),
-      h('p', { class: 'hint', style: 'margin-top:6px' }, 'Isi bila citra uji berubah ukuran; citra akan disesuaikan. Kosong = pakai ukuran citra uji.')));
-  function sync() { histPanel.hidden = mode.get() !== 'history'; upPanel.hidden = mode.get() !== 'upload'; }
+  const sizeField = field('Ukuran watermark', wmSize);
+  const bitsField = field('Jumlah bit biner', wmBits);
+  function syncType(v) {
+    sizeField.hidden = v !== 'image';
+    bitsField.hidden = v !== 'binary';
+  }
+  syncType('image');
+
+  const directPanel = h('div', { class: 'stack' },
+    test.el,
+    h('div', {}, h('h3', { style: 'margin-bottom:10px' }, 'Parameter penyisipan'), params.el),
+    field('Jenis watermark', wmType.el),
+    sizeField,
+    bitsField,
+    h('div', { class: 'grid2' }, field('Lebar asli (opsional)', rw), field('Tinggi asli (opsional)', rh))
+  );
+
+  function sync() {
+    histPanel.hidden = mode.get() !== 'history';
+    directPanel.hidden = mode.get() !== 'direct';
+  }
   sync();
 
   const out = h('div', {}, emptyState('Hasil ekstraksi akan tampil di sini', 'Pilih sumber di sebelah kiri, lalu klik “Ekstrak watermark”.'));
   const btn = h('button', { class: 'btn', type: 'button' }, 'Ekstrak watermark');
+
   btn.addEventListener('click', () => withBusy(btn, 'Mengekstrak…', async () => {
     const fd = new FormData();
     if (mode.get() === 'history') {
@@ -371,10 +405,16 @@ async function viewExtract(root, pend) {
       if (other.file) fd.append('image', other.file);
     } else {
       if (!test.file) { toast('Unggah citra uji terlebih dahulu.', true); return; }
-      fd.append('image', test.file); params.append(fd); wm.append(fd);
+      fd.append('image', test.file);
+      params.append(fd);
+      const t = wmType.get();
+      fd.append('wm_type', t);
+      if (t === 'image') fd.append('wm_size', wmSize.value);
+      if (t === 'binary') fd.append('wm_bits', wmBits.value);
       if (rw.value) fd.append('ref_w', rw.value);
       if (rh.value) fd.append('ref_h', rh.value);
     }
+
     try {
       const { item } = await api('/extract', { method: 'POST', form: fd });
       out.replaceChildren(h('div', { class: 'stack' }, notesList(item),
@@ -384,7 +424,12 @@ async function viewExtract(root, pend) {
       refreshBadge();
     } catch (e) { toast(e.message, true); }
   }));
-  root.append(h('div', { class: 'cols' }, h('div', { class: 'stack' }, card(h('h2', {}, 'Sumber'), h('div', { style: 'margin:12px 0' }, mode.el), histPanel, upPanel), btn), out));
+
+  root.append(h('div', { class: 'cols' },
+    h('div', { class: 'stack' },
+      card(h('h2', {}, 'Sumber ekstraksi'), h('div', { style: 'margin:12px 0' }, mode.el), histPanel, directPanel),
+      btn),
+    out));
 }
 
 /* ================= Simulasi serangan ================= */
